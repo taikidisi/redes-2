@@ -7,15 +7,20 @@
   OVERLAY DE REDES (estilo inspirado en Evangelion)
   Usalo como fuente de navegador en OBS. Todo se configura desde el link:
 
-    overlay.html?instagram=shinjibostero&instagram_color=eva01&tiktok=nombre&x=nombre&youtube=nombre
+    overlay.html?instagram=cuenta1&instagram_color=eva03&instagram2=cuenta2&instagram2_color=eva01&instagram2_img=carpincho.png&x=nombre&orden=instagram,instagram2,x
 
   Nombres:   tiktok, x, instagram, youtube   (las que no pongas se saltean)
-  Colores:   tiktok_color, x_color, instagram_color, youtube_color
-             violeta (eva01), azul (eva00), rojo (eva02), rosa (eva08), naranja (alerta)
+             Para repetir una red agrega un numero: instagram2, instagram3 ... hasta 20.
+             Cada una tiene su propio _color y _img (instagram2_color, instagram2_img).
+  Colores:   tiktok_color, x_color, instagram_color, youtube_color (y lo mismo con el numero: instagram2_color)
+             violeta (eva01), azul (eva00), rojo (eva02), violeta y amarillo (eva03), rosa (eva08), naranja (alerta)
              o un codigo, por ejemplo ffcc00. Con acento propio: rojo-violeta o rojo-ffcc00
+             Tres colores a mano (oscuro-principal-acento): 2e1752-8a4bd6-ffd400
   Imagenes:  imagenes/tiktok.png, imagenes/x.png, imagenes/instagram.png, imagenes/youtube.png
+             (las repetidas usan la imagen de su red salvo que pongas _img)
              imagenes=no las apaga; tiktok_img=otra.png usa otro archivo
-  Otros:     seg=8 (segundos por red), orden=instagram,x,tiktok,youtube,
+  Otros:     seg=8 (segundos por red), orden=instagram,instagram2,x,tiktok,youtube,
+             (sin orden: tiktok, x, instagram, youtube, y cada repetida va despues de su red)
              arroba=no (sin @ adelante), etiqueta=no o etiqueta=SEGUIME (texto chico)
 -->
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -77,13 +82,27 @@ html,body{margin:0;width:100%;height:100%;background:transparent;overflow:hidden
 var NETS = ['tiktok', 'x', 'instagram', 'youtube'];
 var LABEL = { tiktok: 'TIKTOK', x: 'X', instagram: 'INSTAGRAM', youtube: 'YOUTUBE' };
 
+// Cuantas veces se puede repetir una misma red (instagram, instagram2 ... instagram20)
+var MAXREP = 20;
+
+// Todas las claves posibles, en el orden por defecto: cada red seguida de sus repetidas
+var ALLKEYS = [];
+NETS.forEach(function (n) {
+  ALLKEYS.push(n);
+  for (var i = 2; i <= MAXREP; i++) ALLKEYS.push(n + i);
+});
+
+// "instagram2" -> "instagram"
+function netOf(key) { return key.replace(/\d+$/, ''); }
+
 // Paletas inspiradas en los Evas: d = banda oscura, a = color principal, b = acento
 var PAL = {
   violeta: { d: '#2e1752', a: '#8a4bd6', b: '#8fdc2f' },
   azul:    { d: '#12305f', a: '#3b82e0', b: '#f2c200' },
   rojo:    { d: '#5e130d', a: '#e03a1e', b: '#ff8a1f' },
   rosa:    { d: '#5a1a30', a: '#e87fa3', b: '#f5a623' },
-  naranja: { d: '#6b3400', a: '#ff8a1f', b: '#8a4bd6' }
+  naranja: { d: '#6b3400', a: '#ff8a1f', b: '#8a4bd6' },
+  eva03:   { d: '#2e1752', a: '#8a4bd6', b: '#ffd400' }
 };
 var ALIAS = { eva01: 'violeta', eva00: 'azul', eva02: 'rojo', eva08: 'rosa', alerta: 'naranja' };
 
@@ -148,12 +167,24 @@ function fromHex(h) {
 function isHex(s) { return /^([0-9a-f]{3}|[0-9a-f]{6})$/.test(s); }
 function palette(name) { name = ALIAS[name] || name; return PAL.hasOwnProperty(name) ? PAL[name] : null; }
 
-// valor: "violeta", "eva01", "ffcc00", "rojo-violeta" (principal-acento), o vacio
+// Un color suelto: nombre de paleta (usa su color principal) o codigo hexadecimal
+function colorHex(s) {
+  var p = palette(s);
+  if (p) return p.a;
+  return isHex(s) ? expandHex(s) : null;
+}
+
+// valor: "violeta", "eva01", "eva03", "ffcc00", "rojo-violeta" (principal-acento),
+// "2e1752-8a4bd6-ffd400" (oscuro-principal-acento), o vacio
 function resolveColor(val, net) {
   var v = String(val || '').toLowerCase().replace(/[#\s]/g, '');
   var def = PAL[DEF[net]];
   if (!v) return def;
   var parts = v.split('-');
+  if (parts.length >= 3) {
+    var d3 = colorHex(parts[0]), a3 = colorHex(parts[1]), b3 = colorHex(parts[2]);
+    if (d3 && a3 && b3) return { d: d3, a: a3, b: b3 };
+  }
   var main = palette(parts[0]) || (isHex(parts[0]) ? fromHex(parts[0]) : null);
   if (!main) return def;
   if (parts[1]) {
@@ -182,29 +213,31 @@ function parseConfig(search) {
     items: []
   };
 
-  var order = NETS.slice();
+  var order = ALLKEYS.slice();
   if (g('orden')) {
-    order = g('orden').toLowerCase().split(',').map(function (s) { return s.trim(); })
-      .filter(function (s) { return NETS.indexOf(s) >= 0; });
+    order = g('orden').toLowerCase().split(',').map(function (s) { return s.trim().replace(/^(\D+)1$/, '$1'); })
+      .filter(function (s) { return ALLKEYS.indexOf(s) >= 0; });
   }
 
-  var any = NETS.some(function (n) { return g(n) !== ''; });
+  var any = ALLKEYS.some(function (k) { return g(k) !== ''; });
   cfg.demo = !any;
 
-  order.forEach(function (n) {
-    var name = g(n).replace(/^@+/, '').slice(0, 30);
-    if (!name && !any) name = 'tunombre';
+  order.forEach(function (k) {
+    var n = netOf(k);
+    var name = g(k).replace(/^@+/, '').slice(0, 30);
+    if (!name && !any && k === n) name = 'tunombre';
     if (!name) return;
-    var img = g(n + '_img');
+    var img = g(k + '_img');
     var src;
     if (!img) src = 'imagenes/' + n + '.png';
     else if (/^(https?:)?\/\//.test(img) || img.charAt(0) === '/') src = img;
     else src = 'imagenes/' + img;
     cfg.items.push({
       net: n,
+      key: k,
       name: name,
       label: LABEL[n],
-      color: resolveColor(g(n + '_color'), n),
+      color: resolveColor(g(k + '_color'), n),
       img: src
     });
   });
@@ -277,8 +310,6 @@ function show(it, blink) {
   fill.style.animation = 'none';
   void fill.offsetWidth;
   fill.style.animation = '';
-
- 
 }
 
 var idx = 0;
